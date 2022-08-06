@@ -52,14 +52,16 @@ void PIRECStart()
     digitalWrite(TRIGPI1, HIGH);
 }
 
+// return value 0:ok 1:error
 int ISPICAMOK()
 {
-    if (digitalRead(STATPI0) == HIGH && digitalRead(STATPI1) == HIGH)
+    if (digitalRead(STATPI0) == LOW && digitalRead(STATPI1) == LOW)
     {
         return 0;
     }
     else
     {
+        Serial.println("camera error");
         return 1;
     }
 }
