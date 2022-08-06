@@ -17,7 +17,7 @@ if(b'supported=1 detected=1\n' == cp.stdout):
     # camera ok
     GPIO.output(output_pin, GPIO.LOW)
 
-    camera = PiCamera(sensor_mode=5)
+    camera = PiCamera(sensor_mode=4)
 
     # wait until GPIO goes HIGH.
     while(GPIO.input(input_pin) == GPIO.LOW):
@@ -30,9 +30,8 @@ if(b'supported=1 detected=1\n' == cp.stdout):
     h264_exist_count = sum(os.path.isfile(os.path.join(savedir, name))
                            for name in os.listdir(savedir))
     savefilename = savedir + '/' + str(h264_exist_count+1).zfill(4) + '.h264'
-    camera.iso = 800
     camera.framerate = 30
-    camera.resolution = (1920, 1080)
+    camera.resolution = (1640,1232)
     camera.start_recording(savefilename)
 
     # wait until GPIO goes LOW.
