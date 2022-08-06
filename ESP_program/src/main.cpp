@@ -170,7 +170,7 @@ void setup()
   pinMode(HIGH_VOLTAGE_SW, OUTPUT);
   digitalWrite(HIGH_VOLTAGE_SW, LOW);
 
-  led.PWMInit(15, 1, 8, 2, 127);
+  led.PWMInit(2, 1, 8, 2, 127);
   buz.PWMInit(0, 2000, 8, BUZ_SW, 0);
 
   PIPinsInit();
