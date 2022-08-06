@@ -32,7 +32,7 @@ void LPS::begin(SPICREATE::SPICreate *targetSPI, int cs, uint32_t freq)
     LPSSPI = targetSPI;
     spi_device_interface_config_t if_cfg = {};
 
-    //if_cfg.spics_io_num = cs;
+    // if_cfg.spics_io_num = cs;
     if_cfg.pre_cb = NULL;
     if_cfg.post_cb = NULL;
     if_cfg.cs_ena_pretrans = 0;
@@ -53,7 +53,7 @@ void LPS::begin(SPICREATE::SPICreate *targetSPI, int cs, uint32_t freq)
 uint8_t LPS::WhoImI()
 {
     return LPSSPI->readByte(LPS_WhoAmI_Adress | 0x80, deviceHandle);
-    //registor 0x0F and you'll get 0d177 or 0xb1 or 0b10110001
+    // registor 0x0F and you'll get 0d177 or 0xb1 or 0b10110001
 }
 
 void LPS::Get(uint8_t *rx)
