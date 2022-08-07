@@ -31,7 +31,7 @@ if(b'supported=1 detected=1\n' == cp.stdout):
                            for name in os.listdir(savedir))
     savefilename = savedir + '/' + str(h264_exist_count+1).zfill(4) + '.h264'
     camera.framerate = 30
-    camera.resolution = (1640,1232)
+    camera.resolution = (1640, 1232)
     camera.start_recording(savefilename)
 
     # wait until GPIO goes LOW.
@@ -47,6 +47,9 @@ if(b'supported=1 detected=1\n' == cp.stdout):
 # wait until GPIO goes LOW.
     while(GPIO.input(input_pin) == GPIO.HIGH):
         time.sleep(1)
+
+else:
+    time.sleep(60)
 
 # shutdown
 GPIO.cleanup(input_pin)

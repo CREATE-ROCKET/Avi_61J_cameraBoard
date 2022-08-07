@@ -62,6 +62,10 @@ int ISPICAMOK()
     else
     {
         Serial.println("camera error");
+        Serial.print("STATPI0");
+        Serial.println(digitalRead(STATPI0));
+        Serial.print("STATPI1");
+        Serial.println(digitalRead(STATPI1));
         return 1;
     }
 }
