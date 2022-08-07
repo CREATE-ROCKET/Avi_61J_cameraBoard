@@ -131,7 +131,7 @@ IRAM_ATTR void writeFlashFromQueue()
   {
     flash1.write(LOGGING::latestFlashPage * 256, dataset);
     LOGGING::latestFlashPage++;
-    delete dataset;
+    delete[] dataset;
   }
 }
 
