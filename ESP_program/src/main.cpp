@@ -305,14 +305,16 @@ void loop()
     case ENABLEBUZCMD:
     {
       Serial2.print(ENABLEBUZCMD);
-      // buzzer on
+      digitalWrite(HIGH_VOLTAGE_SW, HIGH);
+      buz.PWMChangeDuty(128);
       break;
     }
 
     case DISABLEBUZCMD:
     {
       Serial2.print(DISABLEBUZCMD);
-      // buzzer off
+      digitalWrite(HIGH_VOLTAGE_SW, LOW);
+      buz.PWMChangeDuty(0);
       break;
     }
     }
