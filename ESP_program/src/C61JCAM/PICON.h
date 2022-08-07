@@ -27,10 +27,12 @@ void PIPinsInit()
     pinMode(POWPI1, OUTPUT);
     digitalWrite(POWPI0, LOW);
     digitalWrite(POWPI1, LOW);
+
     pinMode(TRIGPI0, OUTPUT);
     pinMode(TRIGPI1, OUTPUT);
     digitalWrite(TRIGPI0, HIGH);
     digitalWrite(TRIGPI1, HIGH);
+
     pinMode(STATPI0, INPUT_PULLUP);
     pinMode(STATPI1, INPUT_PULLUP);
 }
@@ -39,7 +41,7 @@ void PILaunch()
 {
     digitalWrite(TRIGPI0, LOW);
     digitalWrite(TRIGPI1, LOW);
-    delay(1);
+    delay(1000);
     digitalWrite(POWPI0, HIGH);
     digitalWrite(POWPI1, HIGH);
 }
@@ -50,14 +52,16 @@ void PIRECStart()
     digitalWrite(TRIGPI1, HIGH);
 }
 
+// return value 0:ok 1:error
 int ISPICAMOK()
 {
-    if (digitalRead(STATPI0) == HIGH && digitalRead(STATPI1) == HIGH)
+    if (digitalRead(STATPI0) == LOW && digitalRead(STATPI1) == LOW)
     {
         return 0;
     }
     else
     {
+        Serial.println("camera error");
         return 1;
     }
 }
@@ -66,9 +70,10 @@ void PIRECStopAndKill()
 {
     digitalWrite(TRIGPI0, LOW);
     digitalWrite(TRIGPI1, LOW);
-    delay(20000);
+    delay(30000);
     digitalWrite(POWPI0, LOW);
     digitalWrite(POWPI1, LOW);
+    delay(1000);
     digitalWrite(TRIGPI0, HIGH);
     digitalWrite(TRIGPI1, HIGH);
 }

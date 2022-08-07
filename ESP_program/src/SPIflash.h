@@ -36,9 +36,9 @@ void Flash::begin(SPICREATE::SPICreate *targetSPI, int cs, uint32_t freq)
     flashSPI = targetSPI;
     spi_device_interface_config_t if_cfg = {};
 
-    //if_cfg.spics_io_num = cs;
+    // if_cfg.spics_io_num = cs;
     if_cfg.pre_cb = NULL;
-    //if_cfg.post_cb = NULL;
+    // if_cfg.post_cb = NULL;
     if_cfg.cs_ena_pretrans = 0;
     if_cfg.cs_ena_posttrans = 0;
 

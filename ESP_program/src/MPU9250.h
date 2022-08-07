@@ -38,7 +38,7 @@ void MPU::begin(SPICREATE::SPICreate *targetSPI, int cs, uint32_t freq)
     MPUSPI = targetSPI;
     spi_device_interface_config_t if_cfg = {};
 
-    //if_cfg.spics_io_num = cs;
+    // if_cfg.spics_io_num = cs;
     if_cfg.pre_cb = NULL;
     if_cfg.post_cb = NULL;
     if_cfg.cs_ena_pretrans = 0;
@@ -54,7 +54,7 @@ void MPU::begin(SPICREATE::SPICreate *targetSPI, int cs, uint32_t freq)
 
     deviceHandle = MPUSPI->addDevice(&if_cfg, cs);
 
-    //Init
+    // Init
     MPUSPI->setReg(MPU_ACC_CONFIG, MPU_16G, deviceHandle);
     MPUSPI->setReg(MPU_GYRO_CONFIG, MPU_2500deg, deviceHandle);
 

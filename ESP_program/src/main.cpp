@@ -1,72 +1,153 @@
 #include <Arduino.h>
-#include <MPU9250.h>
-#include <SPICREATE.h>
-#include <SPIflash.h>
-#include <LPS22HB.h>
+
+#include <C61JCAM/SPICONFIG.h>
 
 #include <C61JCAM/COMCONFIG.h>
 #include <C61JCAM/PICON.h>
 #include <C61JCAM/PWMS.hpp>
+
+PWM led;
+PWM buz;
 
 SPICREATE::SPICreate SPIC1;
 MPU mpu9250;
 Flash flash1;
 LPS lps22hb;
 
-PWM led;
-PWM buz;
-
-xTaskHandle mpuHandle;
-
-// logging data global variable
-bool flash_thread_safer = 0;
-unsigned char _flash_buffer[256];
-int _flash_buffer_pointer = 0;
-uint32_t _page = 0;
-bool isLoggingEnable = 0;
-bool isDataErased = 0;
-bool isCheckedSensor = 0;
-
-IRAM_ATTR void addDataFlash(unsigned char *data, int size)
+namespace LOGGING
 {
+  int isAttachingData = 0;
+  int latestDatasetIndex = 0;
+  int latestFlashPage = 0;
+  int lps_counter = 0;
+  int isFlashErased = 0;  // 1:Erased 0:not Erased
+  int isLoggingGoing = 0; // 1:Going 0:not Going
 
-  // if there is another writing task
-  while (flash_thread_safer)
-  {
-    // wait writing task
-    delayMicroseconds(1);
-  }
-  flash_thread_safer = 1;
+  QueueHandle_t flashQueue;
+  uint8_t *latestDataset;
+  TaskHandle_t LoggingHandle;
+};
 
-  for (int i = 0; i < size; i++)
-  {
-    _flash_buffer[_flash_buffer_pointer] = data[i];
-    _flash_buffer_pointer++;
-    // if _flash_buffer filled
-    if (_flash_buffer_pointer == 256)
-    {
-      flash1.write(_page * 256, _flash_buffer);
-      _page++;
-      _flash_buffer_pointer = 0;
-    }
-  }
-  flash_thread_safer = 0;
+void initVariables()
+{
+  LOGGING::isAttachingData = 0;
+  LOGGING::latestDatasetIndex = 0;
+  LOGGING::latestFlashPage = 0;
+  LOGGING::lps_counter = 0;
+  LOGGING::isFlashErased = 0;
+  LOGGING::isLoggingGoing = 0;
 }
 
-int _lps_counter = 0;
-IRAM_ATTR void getMpuData(void *parameters)
+IRAM_ATTR int checkSensor()
+{
+  if ((lps22hb.WhoImI() == 177) && (mpu9250.WhoImI() == 113))
+  {
+    return 0;
+  }
+  Serial.print("LPS:");
+  Serial.println(lps22hb.WhoImI());
+  Serial.print("MPU:");
+  Serial.println(mpu9250.WhoImI());
+  return 1;
+}
+
+IRAM_ATTR void eraseFlash()
+{
+  if (!LOGGING::isFlashErased)
+  {
+    flash1.erase();
+  }
+  LOGGING::isFlashErased = 1;
+}
+
+void readAllFlash()
+{
+  for (int j = 0; j < 65536; j++)
+  {
+    unsigned char readbuffer[DATASETSIZE];
+    flash1.read(j * DATASETSIZE, readbuffer);
+    for (int i = 0; i < DATASETSIZE; i++)
+    {
+      Serial.print(readbuffer[i]);
+      Serial.print(',');
+    }
+  }
+}
+
+IRAM_ATTR int makequeue()
+{
+  LOGGING::flashQueue = xQueueCreate(FLASHQUEUELENGTH, sizeof(uint8_t *));
+  if (LOGGING::flashQueue == NULL)
+  {
+    return 1;
+  }
+  return 0;
+}
+
+IRAM_ATTR void deletequeue()
+{
+  vQueueDelete(LOGGING::flashQueue);
+}
+
+IRAM_ATTR uint8_t *allocDataSet()
+{
+  uint8_t *dataset = new uint8_t[DATASETSIZE];
+  return dataset;
+}
+
+IRAM_ATTR int attachDataSet(uint8_t *data, uint8_t dataLength)
+{
+  while (LOGGING::isAttachingData)
+  {
+    delayMicroseconds(10);
+  }
+  LOGGING::isAttachingData = 1;
+  for (int i = 0; i < dataLength; i++)
+  {
+    if (LOGGING::latestDatasetIndex % 256 == 0)
+    {
+      LOGGING::latestDataset = allocDataSet();
+      if (LOGGING::latestDataset == NULL)
+      {
+        return 1;
+      }
+    }
+    LOGGING::latestDataset[LOGGING::latestDatasetIndex] = data[i];
+    LOGGING::latestDatasetIndex++;
+    if (LOGGING::latestDatasetIndex == 256)
+    {
+      xQueueSend(LOGGING::flashQueue, &LOGGING::latestDataset, 0);
+      LOGGING::latestDatasetIndex = 0;
+    }
+  }
+  LOGGING::isAttachingData = 0;
+  return 0;
+}
+
+IRAM_ATTR void writeFlashFromQueue()
+{
+  uint8_t *dataset;
+  if (xQueueReceive(LOGGING::flashQueue, &dataset, 0) == pdTRUE)
+  {
+    flash1.write(LOGGING::latestFlashPage * 256, dataset);
+    LOGGING::latestFlashPage++;
+    delete[] dataset;
+  }
+}
+
+IRAM_ATTR void loggingData(void *parameters)
 {
   portTickType xLastWakeTime = xTaskGetTickCount();
   for (;;)
   {
     // get mpu data
     int16_t mpudata[6];
-    unsigned char mpudata_flashbf[17];
+    uint8_t mpudata_flashbf[17];
     unsigned long mpugettime = micros();
     mpu9250.Get(mpudata);
 
     // set header to bf
-    mpudata_flashbf[0] = 0xE0;
+    mpudata_flashbf[0] = MPUDATAHEAD;
     // set time to bf
     for (int i = 0; i < 4; i++)
     {
@@ -80,7 +161,7 @@ IRAM_ATTR void getMpuData(void *parameters)
     }
 
     // set freq(lps)
-    if (_lps_counter++ == 50)
+    if (LOGGING::lps_counter++ == MPULPSRATIO)
     {
       // lps logging task
       unsigned char lpsdata[3];
@@ -88,10 +169,10 @@ IRAM_ATTR void getMpuData(void *parameters)
       lps22hb.Get(lpsdata);
 
       // buffer
-      unsigned char lpsdata_flashbf[8];
+      uint8_t lpsdata_flashbf[8];
 
       // set headder to buffer
-      lpsdata_flashbf[0] = 0xE3;
+      lpsdata_flashbf[0] = LPSDATAHEAD;
       // set time to buffer
       for (int i = 0; i < 4; i++)
       {
@@ -102,67 +183,40 @@ IRAM_ATTR void getMpuData(void *parameters)
       {
         lpsdata_flashbf[5 + i] = lpsdata[i];
       }
-      // write flash(lps)
-      addDataFlash(lpsdata_flashbf, 8);
-      _lps_counter = 1;
+      attachDataSet(lpsdata_flashbf, 8);
+      LOGGING::lps_counter = 0;
     }
 
-    // write flash(mpu)
-    addDataFlash(mpudata_flashbf, 17);
+    attachDataSet(mpudata_flashbf, 17);
 
-    vTaskDelayUntil(&xLastWakeTime, MPU_FREQ / portTICK_PERIOD_MS);
+    writeFlashFromQueue();
+
+    vTaskDelayUntil(&xLastWakeTime, LOGGINGINTERVAL / portTICK_PERIOD_MS);
   }
 }
 
-void initLoggingGlobalVars(void)
+IRAM_ATTR void logTaskCreate()
 {
-  flash_thread_safer = 0;
-  _flash_buffer_pointer = 0;
-  _page = 0;
-  isLoggingEnable = 0;
-  isDataErased = 0;
-  isCheckedSensor = 0;
-}
-
-void stopLogging(void)
-{
-  // kill logging task
-  vTaskDelete(mpuHandle);
-
-  // shutdown raspi
-
-  PIRECStopAndKill();
-  Serial.println("stop logging complete");
-}
-
-void checkSensor()
-{
-  if ((lps22hb.WhoImI() == 177) && (mpu9250.WhoImI() == 113))
+  if (LOGGING::isLoggingGoing)
   {
-    // camera check
-    PILaunch();
-    PIRECStart();
-    delay(60000);
-    if (ISPICAMOK())
-    {
-      Serial2.print(CHECKSENSORCMD);
-    }
-    else
-    {
-      Serial2.print(WRONGSENSORCMD);
-    }
-    delay(20000);
-    PIRECStopAndKill();
+    return;
   }
-  else
-  {
-    Serial2.print(WRONGSENSORCMD); // sensor not ok
-    Serial.println(lps22hb.WhoImI());
-    Serial.println(mpu9250.WhoImI());
-  }
+  initVariables();
+  LOGGING::isLoggingGoing = 1;
+  makequeue();
+  xTaskCreate(loggingData, "Logging", 8192, NULL, 1, &LOGGING::LoggingHandle);
 }
 
-/////////////////////////////////////////////////////////////////////////////////////////////////
+IRAM_ATTR void logTaskDelete()
+{
+  if (!LOGGING::isLoggingGoing)
+  {
+    return;
+  }
+  vTaskDelete(LOGGING::LoggingHandle);
+  deletequeue();
+  LOGGING::isLoggingGoing = 0;
+}
 
 void setup()
 {
@@ -170,7 +224,7 @@ void setup()
   pinMode(HIGH_VOLTAGE_SW, OUTPUT);
   digitalWrite(HIGH_VOLTAGE_SW, LOW);
 
-  led.PWMInit(15, 1, 8, 2, 127);
+  led.PWMInit(2, 1, 8, 2, 127);
   buz.PWMInit(0, 2000, 8, BUZ_SW, 0);
 
   PIPinsInit();
@@ -180,135 +234,104 @@ void setup()
   Serial.println("ESP launched");
   Serial2.begin(115200, SERIAL_8N1, COMBOARDRX, COMBOARDTX);
 
-  // init spis
   SPIC1.begin(VSPI, SCK1, MISO1, MOSI1);
-  mpu9250.begin(&SPIC1, MPUCS, 12000000);
-  lps22hb.begin(&SPIC1, LPSCS, 12000000);
-  flash1.begin(&SPIC1, flashCS, 12000000);
+  mpu9250.begin(&SPIC1, MPUCS, SPIFREQ);
+  lps22hb.begin(&SPIC1, LPSCS, SPIFREQ);
+  flash1.begin(&SPIC1, flashCS, SPIFREQ);
+  initVariables();
 }
 
 void loop()
 {
-  // cmd from com board
   while (Serial2.available())
   {
-    char command = Serial2.read();
-    // if cmd 'i' recieved, check sensor
-    if (command == CHECKSENSORCMD)
+    char cmdFromComBoard = Serial2.read();
+    switch (cmdFromComBoard)
     {
-      if (isCheckedSensor == 0)
+    case CHECKSENSORCMD:
+    {
+      int sensorStatus = 0; // 0:ok 1:not ok
+      sensorStatus = checkSensor();
+      led.PWMChangeFreq(20);
+      PILaunch();
+      PIRECStart();
+      delay(60000);
+      sensorStatus = ISPICAMOK();
+      if (sensorStatus)
       {
-        isCheckedSensor = 1;
-        checkSensor();
+        Serial2.print(WRONGSENSORCMD);
       }
-    }
-    // if recieved other cmd, transmit same cmd
-    else
-    {
-      isCheckedSensor = 0;
-      Serial2.print(command);
+      else
+      {
+        Serial2.print(CHECKSENSORCMD);
+      }
+      delay(1000);
+      PIRECStopAndKill();
+      led.PWMChangeFreq(1);
+      break;
     }
 
-    // if cmd 'l' recieved, start logging
-    if (command == STARTLOGGINGCMD)
+    case STARTLOGGINGCMD:
     {
-      if (isLoggingEnable == 0)
-      {
-        isLoggingEnable = 1;
-        Serial.println("start logging");
-        Serial.println("FLIGHTMODE");
-        led.PWMChangeFreq(5);
-        // init raspi
-        PILaunch();
-        PIRECStart();
+      Serial2.print(STARTLOGGINGCMD);
+      led.PWMChangeFreq(20);
+      PILaunch();
+      eraseFlash();
+      PIRECStart();
+      logTaskCreate();
+      led.PWMChangeFreq(10);
+      break;
+    }
 
-        // mode: Flight mode
-        flash1.erase();
-        delay(1);
+    case STOPLOGGINGCMD:
+    {
+      Serial2.print(STOPLOGGINGCMD);
+      led.PWMChangeFreq(5);
+      logTaskDelete();
+      PIRECStopAndKill();
+      led.PWMChangeFreq(1);
+      break;
+    }
 
-        // start: mpu and lps logging
-        xTaskCreate(getMpuData, "getMPUData", 65536, NULL, 1, &mpuHandle);
-        delayMicroseconds(50);
-      }
-    }
-    // if cmd 's' recieved, stop logging and reboot ESP
-    if (command == STOPLOGGINGCMD)
+    case DATAERACECMD:
     {
-      if (isLoggingEnable == 1)
-      {
-        Serial.println("stop logging");
-        led.PWMChangeFreq(1);
-        stopLogging();
-        initLoggingGlobalVars();
-        isLoggingEnable = 0;
-      }
+      Serial2.print(DATAERACECMD);
+      led.PWMChangeFreq(20);
+      eraseFlash();
+      led.PWMChangeFreq(1);
+      break;
     }
-    // if cmd 'd' recieved, erase flash
-    if (command == DATAERACECMD)
+
+    case ENABLEBUZCMD:
     {
-      if (isDataErased == 0)
-      {
-        Serial.println("erase data");
-        flash1.erase();
-        initLoggingGlobalVars();
-        Serial2.print(COMPLETEDATAERACECMD);
-      }
-      isDataErased = 1;
+      Serial2.print(ENABLEBUZCMD);
+      // buzzer on
+      break;
     }
-    // if cmd 'b' recieved, turn on buz *note* change high voltage sw on before launch
-    if (command == ENABLEBUZCMD)
+
+    case DISABLEBUZCMD:
     {
-      digitalWrite(HIGH_VOLTAGE_SW, HIGH);
-      Serial.println("buzzer on");
-      buz.PWMChangeDuty(127);
+      Serial2.print(DISABLEBUZCMD);
+      // buzzer off
+      break;
     }
-    // if cmd 'u' recieved, rutn off buz
-    if (command == DISABLEBUZCMD)
-    {
-      digitalWrite(HIGH_VOLTAGE_SW, LOW);
-      Serial.println("buzzer off");
-      buz.PWMChangeDuty(0);
     }
   }
 
-  // check flash page
-  while (_page > 65530)
-  {
-    Serial.println("flash filled");
-    stopLogging();
-    initLoggingGlobalVars();
-  }
-
-  // cmd from pc (change READMODE:'r'(114))
   while (Serial.available())
   {
-    unsigned char command = Serial.read();
+    unsigned char cmdFromPC = Serial.read();
     Serial.print("recieved cmd from Serial0 is '");
-    Serial.print(command);
+    Serial.print(cmdFromPC);
     Serial.println("'");
 
-    if (command == READMODECMD)
+    switch (cmdFromPC)
     {
-      Serial.println("READMODE");
-      // mode: read mode
-      for (int j = 0; j < 65536; j++)
-      {
-        unsigned char readbuffer[256];
-        for (int i = 0; i < 256; i++)
-        {
-          readbuffer[i] = 128;
-        }
-        flash1.read(j * 256, readbuffer);
-        for (int i = 0; i < 256; i++)
-        {
-          Serial.print(readbuffer[i]);
-          Serial.print(',');
-        }
-      }
+    case READMODECMD:
+      readAllFlash();
+      break;
     }
   }
-  // wtd call for pc
-  Serial.println("a");
+
   delay(1000);
 }
-/////////////////////////////////////////////////////////////////////////////////////////////////
