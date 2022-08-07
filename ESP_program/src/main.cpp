@@ -20,8 +20,10 @@ namespace LOGGING
   int latestDatasetIndex = 0;
   int latestFlashPage = 0;
   int lps_counter = 0;
-  int isFlashErased = 0;  // 1:Erased 0:not Erased
-  int isLoggingGoing = 0; // 1:Going 0:not Going
+  int isFlashErased = 0;   // 1:Erased 0:not Erased
+  int isLoggingGoing = 0;  // 1:Going 0:not Going
+  int isCheckedSensor = 0; // 1:Checked 0:not Checked
+  char sensorStatus;
 
   QueueHandle_t flashQueue;
   uint8_t *latestDataset;
@@ -34,13 +36,12 @@ void initVariables()
   LOGGING::latestDatasetIndex = 0;
   LOGGING::latestFlashPage = 0;
   LOGGING::lps_counter = 0;
-  LOGGING::isFlashErased = 0;
-  LOGGING::isLoggingGoing = 0;
 }
 
 IRAM_ATTR int checkSensor()
 {
-  if ((lps22hb.WhoImI() == 177) && (mpu9250.WhoImI() == 113))
+  //(lps22hb.WhoImI() == 177) &&
+  if ((mpu9250.WhoImI() == 113))
   {
     return 0;
   }
@@ -124,8 +125,21 @@ IRAM_ATTR int attachDataSet(uint8_t *data, uint8_t dataLength)
   return 0;
 }
 
+IRAM_ATTR void logTaskDelete()
+{
+  vTaskDelete(LOGGING::LoggingHandle);
+  deletequeue();
+}
+
 IRAM_ATTR void writeFlashFromQueue()
 {
+  if (LOGGING::latestFlashPage > 65530)
+  {
+    led.PWMChangeFreq(5);
+    logTaskDelete();
+    PIRECStopAndKill();
+    led.PWMChangeFreq(1);
+  }
   uint8_t *dataset;
   if (xQueueReceive(LOGGING::flashQueue, &dataset, 0) == pdTRUE)
   {
@@ -197,25 +211,9 @@ IRAM_ATTR void loggingData(void *parameters)
 
 IRAM_ATTR void logTaskCreate()
 {
-  if (LOGGING::isLoggingGoing)
-  {
-    return;
-  }
   initVariables();
-  LOGGING::isLoggingGoing = 1;
   makequeue();
   xTaskCreate(loggingData, "Logging", 8192, NULL, 1, &LOGGING::LoggingHandle);
-}
-
-IRAM_ATTR void logTaskDelete()
-{
-  if (!LOGGING::isLoggingGoing)
-  {
-    return;
-  }
-  vTaskDelete(LOGGING::LoggingHandle);
-  deletequeue();
-  LOGGING::isLoggingGoing = 0;
 }
 
 void setup()
@@ -250,22 +248,30 @@ void loop()
     {
     case CHECKSENSORCMD:
     {
+      if (LOGGING::isCheckedSensor)
+      {
+        Serial2.print(LOGGING::sensorStatus);
+        break;
+      }
+      LOGGING::isCheckedSensor = 1;
       int sensorStatus = 0; // 0:ok 1:not ok
       sensorStatus = checkSensor();
       led.PWMChangeFreq(20);
       PILaunch();
       PIRECStart();
-      delay(60000);
-      sensorStatus = ISPICAMOK();
+      delay(30000);
+      sensorStatus = sensorStatus || ISPICAMOK();
       if (sensorStatus)
       {
-        Serial2.print(WRONGSENSORCMD);
+        LOGGING::sensorStatus = WRONGSENSORCMD;
+        Serial2.print(LOGGING::sensorStatus);
       }
       else
       {
-        Serial2.print(CHECKSENSORCMD);
+        LOGGING::sensorStatus = CHECKSENSORCMD;
+        Serial2.print(LOGGING::sensorStatus);
       }
-      delay(1000);
+      delay(10000);
       PIRECStopAndKill();
       led.PWMChangeFreq(1);
       break;
@@ -273,6 +279,11 @@ void loop()
 
     case STARTLOGGINGCMD:
     {
+      if (LOGGING::isLoggingGoing)
+      {
+        break;
+      }
+      LOGGING::isLoggingGoing = 1;
       Serial2.print(STARTLOGGINGCMD);
       led.PWMChangeFreq(20);
       PILaunch();
@@ -285,6 +296,11 @@ void loop()
 
     case STOPLOGGINGCMD:
     {
+      if (!LOGGING::isLoggingGoing)
+      {
+        break;
+      }
+      LOGGING::isLoggingGoing = 0;
       Serial2.print(STOPLOGGINGCMD);
       led.PWMChangeFreq(5);
       logTaskDelete();
