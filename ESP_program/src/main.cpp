@@ -311,10 +311,10 @@ void loop()
 
     case DATAERACECMD:
     {
-      Serial2.print(DATAERACECMD);
       led.PWMChangeFreq(20);
       eraseFlash();
       led.PWMChangeFreq(1);
+      Serial2.print(DATAERACECMD);
       break;
     }
 
