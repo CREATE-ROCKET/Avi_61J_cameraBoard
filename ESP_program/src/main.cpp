@@ -7,7 +7,7 @@
 #include <C61JCAM/PWMS.hpp>
 
 // PWM led;
-// PWM buz;
+PWM buz;
 
 SPICREATE::SPICreate SPIC1;
 MPU mpu9250;
@@ -183,8 +183,8 @@ void setup()
   pinMode(HIGH_VOLTAGE_SW, OUTPUT);
   digitalWrite(HIGH_VOLTAGE_SW, LOW);
 
-  // led.PWMInit(2, 1, 8, 2, 127);
-  // buz.PWMInit(0, 2000, 8, BUZ_SW, 0);
+  // led.PWMInit(0, 1, 8, 2, 128);
+  buz.PWMInit(2, 2000, 8, BUZ_SW, 0);
 
   PIPinsInit();
 
@@ -282,7 +282,7 @@ void loop()
     {
       Serial2.print(ENABLEBUZCMD);
       digitalWrite(HIGH_VOLTAGE_SW, HIGH);
-      // buz.PWMChangeDuty(128);
+      buz.PWMChangeDuty(128);
       break;
     }
 
@@ -290,7 +290,7 @@ void loop()
     {
       Serial2.print(DISABLEBUZCMD);
       digitalWrite(HIGH_VOLTAGE_SW, LOW);
-      // buz.PWMChangeDuty(0);
+      buz.PWMChangeDuty(0);
       break;
     }
     }

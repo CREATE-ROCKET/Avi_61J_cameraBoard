@@ -12,10 +12,9 @@ public:
     void PWMInit(int _ch, double freq, uint8_t res_bit, uint8_t pin, uint8_t duty)
     {
         ch = _ch;
+        pinMode(pin, OUTPUT);
         ledcSetup(ch, freq, res_bit);
         ledcAttachPin(pin, ch);
-        ledcWrite(ch, duty);
-        ledcWriteTone(ch, freq);
         ledcWrite(ch, duty);
     }
 
