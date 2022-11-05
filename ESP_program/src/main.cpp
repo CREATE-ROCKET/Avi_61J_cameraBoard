@@ -6,7 +6,7 @@
 #include <C61JCAM/PICON.h>
 #include <C61JCAM/PWMS.hpp>
 
-// PWM led;
+PWM led;
 PWM buz;
 
 SPICREATE::SPICreate SPIC1;
@@ -101,10 +101,10 @@ IRAM_ATTR void logTaskDelete()
 IRAM_ATTR void finishLogging()
 {
   LOGGING::isLoggingGoing = 0;
-  // led.PWMChangeFreq(5);
+  led.PWMChangeFreq(5);
   logTaskDelete();
   PIRECStopAndKill();
-  // led.PWMChangeFreq(1);
+  led.PWMChangeFreq(1);
 }
 
 IRAM_ATTR void loggingData(void *parameters)
@@ -183,7 +183,7 @@ void setup()
   pinMode(HIGH_VOLTAGE_SW, OUTPUT);
   digitalWrite(HIGH_VOLTAGE_SW, LOW);
 
-  // led.PWMInit(0, 1, 8, 2, 128);
+  led.PWMInit(14, 1, 16, 2, 32768);
   buz.PWMInit(2, 2000, 8, BUZ_SW, 0);
 
   PIPinsInit();
@@ -217,7 +217,7 @@ void loop()
       LOGGING::isCheckedSensor = 1;
       int sensorStatus = 0; // 0:ok 1:not ok
       sensorStatus = checkSensor();
-      // led.PWMChangeFreq(20);
+      led.PWMChangeFreq(20);
       PILaunch();
       PIRECStart();
       delay(30000);
@@ -234,7 +234,7 @@ void loop()
       }
       delay(10000);
       PIRECStopAndKill();
-      // led.PWMChangeFreq(1);
+      led.PWMChangeFreq(1);
       break;
     }
 
@@ -246,13 +246,13 @@ void loop()
       }
       LOGGING::isLoggingGoing = 1;
       Serial2.print(STARTLOGGINGCMD);
-      // led.PWMChangeFreq(20);
+      led.PWMChangeFreq(20);
       PILaunch();
       eraseFlash();
       PIRECStart();
       logTaskCreate();
       Serial.println("logging start");
-      // led.PWMChangeFreq(10);
+      led.PWMChangeFreq(10);
       break;
     }
 
@@ -271,9 +271,9 @@ void loop()
     case DATAERACECMD:
     {
       Serial.println("data erace by erace cmd");
-      // led.PWMChangeFreq(20);
+      led.PWMChangeFreq(20);
       eraseFlash();
-      // led.PWMChangeFreq(1);
+      led.PWMChangeFreq(1);
       Serial2.print(DATAERACECMD);
       break;
     }

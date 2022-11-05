@@ -9,7 +9,7 @@ private:
     uint8_t ch;
 
 public:
-    void PWMInit(int _ch, double freq, uint8_t res_bit, uint8_t pin, uint8_t duty)
+    void PWMInit(int _ch, double freq, uint8_t res_bit, uint8_t pin, uint32_t duty)
     {
         ch = _ch;
         pinMode(pin, OUTPUT);
