@@ -16,17 +16,16 @@ LPS lps22hb;
 
 namespace LOGGING
 {
-  int isAttachingData = 0;
-  int latestDatasetIndex = 0;
-  int latestFlashPage = 0;
-  int lps_counter = 0;
-  int isFlashErased = 0;   // 1:Erased 0:not Erased
-  int isLoggingGoing = 0;  // 1:Going 0:not Going
-  int isCheckedSensor = 0; // 1:Checked 0:not Checked
+  uint8_t isAttachingData = 0;
+  uint32_t latestDatasetIndex = 0;
+  uint32_t latestFlashPage = 0;
+  uint8_t lps_counter = 0;
+  uint8_t isFlashErased = 0;   // 1:Erased 0:not Erased
+  uint8_t isLoggingGoing = 0;  // 1:Going 0:not Going
+  uint8_t isCheckedSensor = 0; // 1:Checked 0:not Checked
   char sensorStatus;
 
-  QueueHandle_t flashQueue;
-  uint8_t *latestDataset;
+  uint8_t latestDataset[128];
   TaskHandle_t LoggingHandle;
 };
 
@@ -38,7 +37,7 @@ void initVariables()
   LOGGING::lps_counter = 0;
 }
 
-IRAM_ATTR int checkSensor()
+int checkSensor()
 {
   //(lps22hb.WhoImI() == 177) &&
   if ((mpu9250.WhoImI() == 113))
@@ -52,7 +51,7 @@ IRAM_ATTR int checkSensor()
   return 1;
 }
 
-IRAM_ATTR void eraseFlash()
+void eraseFlash()
 {
   if (!LOGGING::isFlashErased)
   {
@@ -75,85 +74,33 @@ void readAllFlash()
   }
 }
 
-IRAM_ATTR int makequeue()
-{
-  LOGGING::flashQueue = xQueueCreate(FLASHQUEUELENGTH, sizeof(uint8_t *));
-  if (LOGGING::flashQueue == NULL)
-  {
-    return 1;
-  }
-  return 0;
-}
-
-IRAM_ATTR void deletequeue()
-{
-  vQueueDelete(LOGGING::flashQueue);
-}
-
-IRAM_ATTR uint8_t *allocDataSet()
-{
-  uint8_t *dataset = new uint8_t[DATASETSIZE];
-  return dataset;
-}
-
 IRAM_ATTR int attachDataSet(uint8_t *data, uint8_t dataLength)
 {
-  while (LOGGING::isAttachingData)
-  {
-    delayMicroseconds(10);
-  }
-  LOGGING::isAttachingData = 1;
+
   for (int i = 0; i < dataLength; i++)
   {
-    if (LOGGING::latestDatasetIndex % 256 == 0)
-    {
-      LOGGING::latestDataset = allocDataSet();
-      if (LOGGING::latestDataset == NULL)
-      {
-        return 1;
-      }
-    }
     LOGGING::latestDataset[LOGGING::latestDatasetIndex] = data[i];
     LOGGING::latestDatasetIndex++;
     if (LOGGING::latestDatasetIndex == 256)
     {
-      xQueueSend(LOGGING::flashQueue, &LOGGING::latestDataset, 0);
+      flash1.write(LOGGING::latestFlashPage++ << 8, LOGGING::latestDataset);
       LOGGING::latestDatasetIndex = 0;
     }
   }
-  LOGGING::isAttachingData = 0;
   return 0;
 }
 
 IRAM_ATTR void logTaskDelete()
 {
   vTaskDelete(LOGGING::LoggingHandle);
-  deletequeue();
-}
-
-IRAM_ATTR void writeFlashFromQueue()
-{
-  if (LOGGING::latestFlashPage > 65530)
-  {
-    led.PWMChangeFreq(5);
-    logTaskDelete();
-    PIRECStopAndKill();
-    led.PWMChangeFreq(1);
-  }
-  uint8_t *dataset;
-  if (xQueueReceive(LOGGING::flashQueue, &dataset, 0) == pdTRUE)
-  {
-    flash1.write(LOGGING::latestFlashPage * 256, dataset);
-    LOGGING::latestFlashPage++;
-    delete[] dataset;
-  }
 }
 
 IRAM_ATTR void loggingData(void *parameters)
 {
-  portTickType xLastWakeTime = xTaskGetTickCount();
+
   for (;;)
   {
+    portTickType xLastWakeTime = xTaskGetTickCount();
     // get mpu data
     int16_t mpudata[6];
     uint8_t mpudata_flashbf[17];
@@ -203,8 +150,6 @@ IRAM_ATTR void loggingData(void *parameters)
 
     attachDataSet(mpudata_flashbf, 17);
 
-    writeFlashFromQueue();
-
     vTaskDelayUntil(&xLastWakeTime, LOGGINGINTERVAL / portTICK_PERIOD_MS);
   }
 }
@@ -212,7 +157,6 @@ IRAM_ATTR void loggingData(void *parameters)
 IRAM_ATTR void logTaskCreate()
 {
   initVariables();
-  makequeue();
   xTaskCreate(loggingData, "Logging", 8192, NULL, 1, &LOGGING::LoggingHandle);
 }
 
