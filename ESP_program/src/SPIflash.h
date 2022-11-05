@@ -53,11 +53,14 @@ void Flash::begin(SPICREATE::SPICreate *targetSPI, int cs, uint32_t freq)
     deviceHandle = flashSPI->addDevice(&if_cfg, cs);
     uint8_t readStatus = flashSPI->readByte(CMD_RDSR, deviceHandle);
 
+    /*
     while (readStatus != 0)
     {
         readStatus = flashSPI->readByte(CMD_RDSR, deviceHandle);
         delay(100);
     }
+    */
+
     delay(100);
     return;
 }

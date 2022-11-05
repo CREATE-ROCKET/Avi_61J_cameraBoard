@@ -16,17 +16,16 @@ LPS lps22hb;
 
 namespace LOGGING
 {
-  int isAttachingData = 0;
-  int latestDatasetIndex = 0;
-  int latestFlashPage = 0;
-  int lps_counter = 0;
-  int isFlashErased = 0;   // 1:Erased 0:not Erased
-  int isLoggingGoing = 0;  // 1:Going 0:not Going
-  int isCheckedSensor = 0; // 1:Checked 0:not Checked
+  uint8_t isAttachingData = 0;
+  uint32_t latestDatasetIndex = 0;
+  uint32_t latestFlashPage = 0;
+  uint8_t lps_counter = 0;
+  uint8_t isFlashErased = 0;   // 1:Erased 0:not Erased
+  uint8_t isLoggingGoing = 0;  // 1:Going 0:not Going
+  uint8_t isCheckedSensor = 0; // 1:Checked 0:not Checked
   char sensorStatus;
 
-  QueueHandle_t flashQueue;
-  uint8_t *latestDataset;
+  uint8_t latestDataset[256];
   TaskHandle_t LoggingHandle;
 };
 
@@ -38,21 +37,21 @@ void initVariables()
   LOGGING::lps_counter = 0;
 }
 
-IRAM_ATTR int checkSensor()
+int checkSensor()
 {
+  Serial.print("LPS:");
+  Serial.println(lps22hb.WhoImI());
+  Serial.print("MPU:");
+  Serial.println(mpu9250.WhoImI());
   //(lps22hb.WhoImI() == 177) &&
   if ((mpu9250.WhoImI() == 113))
   {
     return 0;
   }
-  Serial.print("LPS:");
-  Serial.println(lps22hb.WhoImI());
-  Serial.print("MPU:");
-  Serial.println(mpu9250.WhoImI());
   return 1;
 }
 
-IRAM_ATTR void eraseFlash()
+void eraseFlash()
 {
   if (!LOGGING::isFlashErased)
   {
@@ -75,78 +74,37 @@ void readAllFlash()
   }
 }
 
-IRAM_ATTR int makequeue()
-{
-  LOGGING::flashQueue = xQueueCreate(FLASHQUEUELENGTH, sizeof(uint8_t *));
-  if (LOGGING::flashQueue == NULL)
-  {
-    return 1;
-  }
-  return 0;
-}
-
-IRAM_ATTR void deletequeue()
-{
-  vQueueDelete(LOGGING::flashQueue);
-}
-
-IRAM_ATTR uint8_t *allocDataSet()
-{
-  uint8_t *dataset = new uint8_t[DATASETSIZE];
-  return dataset;
-}
-
 IRAM_ATTR int attachDataSet(uint8_t *data, uint8_t dataLength)
 {
-  while (LOGGING::isAttachingData)
-  {
-    delayMicroseconds(10);
-  }
-  LOGGING::isAttachingData = 1;
+
   for (int i = 0; i < dataLength; i++)
   {
-    if (LOGGING::latestDatasetIndex % 256 == 0)
-    {
-      LOGGING::latestDataset = allocDataSet();
-      if (LOGGING::latestDataset == NULL)
-      {
-        return 1;
-      }
-    }
-    LOGGING::latestDataset[LOGGING::latestDatasetIndex] = data[i];
-    LOGGING::latestDatasetIndex++;
+    LOGGING::latestDataset[LOGGING::latestDatasetIndex++] = data[i];
+    // Serial.printf("i = %d", LOGGING::latestDatasetIndex);
+    //  Serial.println("data attached");
     if (LOGGING::latestDatasetIndex == 256)
     {
-      xQueueSend(LOGGING::flashQueue, &LOGGING::latestDataset, 0);
+      // Serial.println("kakikomi kaishi");
+      flash1.write((LOGGING::latestFlashPage++) << 8, LOGGING::latestDataset);
+      // Serial.println("write flash");
       LOGGING::latestDatasetIndex = 0;
     }
   }
-  LOGGING::isAttachingData = 0;
   return 0;
 }
 
 IRAM_ATTR void logTaskDelete()
 {
   vTaskDelete(LOGGING::LoggingHandle);
-  deletequeue();
 }
 
-IRAM_ATTR void writeFlashFromQueue()
+IRAM_ATTR void finishLogging()
 {
-  if (LOGGING::latestFlashPage > 65530)
-  {
-    led.PWMChangeFreq(5);
-    logTaskDelete();
-    PIRECStopAndKill();
-    led.PWMChangeFreq(1);
-  }
-  uint8_t *dataset;
-  if (xQueueReceive(LOGGING::flashQueue, &dataset, 0) == pdTRUE)
-  {
-    flash1.write(LOGGING::latestFlashPage * 256, dataset);
-    LOGGING::latestFlashPage++;
-    delete[] dataset;
-  }
+  LOGGING::isLoggingGoing = 0;
+  led.PWMChangeFreq(5);
+  logTaskDelete();
+  PIRECStopAndKill();
+  led.PWMChangeFreq(1);
 }
 
 IRAM_ATTR void loggingData(void *parameters)
@@ -154,11 +112,14 @@ IRAM_ATTR void loggingData(void *parameters)
   portTickType xLastWakeTime = xTaskGetTickCount();
   for (;;)
   {
+
     // get mpu data
     int16_t mpudata[6];
     uint8_t mpudata_flashbf[17];
     unsigned long mpugettime = micros();
     mpu9250.Get(mpudata);
+
+    // Serial.println("mpu data get");
 
     // set header to bf
     mpudata_flashbf[0] = MPUDATAHEAD;
@@ -197,13 +158,14 @@ IRAM_ATTR void loggingData(void *parameters)
       {
         lpsdata_flashbf[5 + i] = lpsdata[i];
       }
+      // Serial.println("lps data get");
       attachDataSet(lpsdata_flashbf, 8);
+      // Serial.println("lps data send");
       LOGGING::lps_counter = 0;
     }
 
     attachDataSet(mpudata_flashbf, 17);
-
-    writeFlashFromQueue();
+    // Serial.println("mpu data send");
 
     vTaskDelayUntil(&xLastWakeTime, LOGGINGINTERVAL / portTICK_PERIOD_MS);
   }
@@ -212,7 +174,6 @@ IRAM_ATTR void loggingData(void *parameters)
 IRAM_ATTR void logTaskCreate()
 {
   initVariables();
-  makequeue();
   xTaskCreate(loggingData, "Logging", 8192, NULL, 1, &LOGGING::LoggingHandle);
 }
 
@@ -222,8 +183,8 @@ void setup()
   pinMode(HIGH_VOLTAGE_SW, OUTPUT);
   digitalWrite(HIGH_VOLTAGE_SW, LOW);
 
-  led.PWMInit(2, 1, 8, 2, 127);
-  buz.PWMInit(0, 2000, 8, BUZ_SW, 0);
+  led.PWMInit(14, 1, 16, 2, 32768);
+  buz.PWMInit(2, 2000, 8, BUZ_SW, 0);
 
   PIPinsInit();
 
@@ -290,6 +251,7 @@ void loop()
       eraseFlash();
       PIRECStart();
       logTaskCreate();
+      Serial.println("logging start");
       led.PWMChangeFreq(10);
       break;
     }
@@ -300,17 +262,15 @@ void loop()
       {
         break;
       }
-      LOGGING::isLoggingGoing = 0;
       Serial2.print(STOPLOGGINGCMD);
-      led.PWMChangeFreq(5);
-      logTaskDelete();
-      PIRECStopAndKill();
-      led.PWMChangeFreq(1);
+      finishLogging();
+      Serial.println("logging finish by cmd");
       break;
     }
 
     case DATAERACECMD:
     {
+      Serial.println("data erace by erace cmd");
       led.PWMChangeFreq(20);
       eraseFlash();
       led.PWMChangeFreq(1);
@@ -339,17 +299,18 @@ void loop()
   while (Serial.available())
   {
     unsigned char cmdFromPC = Serial.read();
-    Serial.print("recieved cmd from Serial0 is '");
-    Serial.print(cmdFromPC);
-    Serial.println("'");
 
     switch (cmdFromPC)
     {
     case READMODECMD:
+      Serial.println("flash read mode");
       readAllFlash();
       break;
     }
   }
-
-  delay(1000);
+  if (LOGGING::isLoggingGoing && (LOGGING::latestFlashPage > 65530))
+  {
+    finishLogging();
+    Serial.println("logging finish by filling flash");
+  }
 }
